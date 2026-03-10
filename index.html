@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tic Tac Toe</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            70% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop {
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        /* Prevent pull-to-refresh and zooming on the game board on mobile */
+        #game-board {
+            touch-action: none;
+        }
+        .cell-hover:hover {
+            background-color: #d1c6ba;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-[#faf8ef] flex flex-col items-center justify-center p-4 font-sans text-[#776e65]">
+
+    <div class="w-full max-w-[450px]">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-4xl md:text-5xl font-bold leading-none tracking-tight">Tic Tac<br>Toe</h1>
+            <div class="flex space-x-2">
+                <div class="bg-[#bbada0] px-3 py-2 rounded-md flex flex-col items-center justify-center min-w-[70px]">
+                    <span class="text-[#eee4da] text-xs font-bold uppercase tracking-wider">Player X</span>
+                    <span id="score-x" class="text-white font-bold text-xl">0</span>
+                </div>
+                <div class="bg-[#bbada0] px-3 py-2 rounded-md flex flex-col items-center justify-center min-w-[70px]">
+                    <span class="text-[#eee4da] text-xs font-bold uppercase tracking-wider">Player O</span>
+                    <span id="score-o" class="text-white font-bold text-xl">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls & Status -->
+        <div class="flex justify-between items-center mb-6">
+            <div id="status-text" class="text-xl font-bold text-[#8f7a66]">
+                X's Turn
+            </div>
+            <div class="flex space-x-2 shrink-0">
+                <button id="mode-btn" class="bg-[#edc22e] hover:bg-[#edc53f] text-white font-bold py-2 px-4 rounded-md transition-colors shadow-sm text-sm">
+                    🤖 Vs AI
+                </button>
+                <button id="reset-btn" class="bg-[#8f7a66] hover:bg-[#9f8b77] text-white font-bold py-2 px-4 rounded-md transition-colors shadow-sm text-sm">
+                    Restart
+                </button>
+            </div>
+        </div>
+
+        <!-- Game Board Container -->
+        <div id="game-board" class="relative bg-[#bbada0] p-3 md:p-4 rounded-xl w-full aspect-square select-none">
+            <!-- 3x3 Grid -->
+            <div id="grid" class="grid grid-cols-3 grid-rows-3 gap-3 md:gap-4 w-full h-full relative z-10">
+                <!-- Cells generated via JS -->
+            </div>
+
+            <!-- Game Over Overlay -->
+            <div id="game-over-overlay" class="hidden absolute inset-0 bg-[#eee4da]/80 z-20 flex flex-col items-center justify-center rounded-xl animate-fade-in backdrop-blur-sm">
+                <h2 id="winner-text" class="text-5xl md:text-6xl font-bold text-[#776e65] mb-6 drop-shadow-sm">X Wins!</h2>
+                <button id="play-again-btn" class="bg-[#8f7a66] hover:bg-[#9f8b77] text-white font-bold py-3 px-8 rounded-md text-xl transition-colors shadow-md">
+                    Play Again
+                </button>
+            </div>
+        </div>
+
+        <!-- Footer / Instructions -->
+        <div class="mt-8 text-[#776e65] text-sm md:text-base border-t border-[#d8d4d0] pt-6">
+            <p class="mb-4 text-center">
+                Get 3 in a row to win! Toggle <strong>Vs AI</strong> to play against an unbeatable computer, or play locally with a friend.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // --- State & Variables ---
+        let board = Array(9).fill(null);
+        let currentPlayer = 'X';
+        let gameActive = true;
+        let currentMode = 'PvAI'; // Modes: 'PvAI', '2P', 'AIvAI'
+        let scores = { X: 0, O: 0 };
+        let aiTimeoutId = null;
+        let restartTimeoutId = null;
+
+        const WIN_CONDITIONS = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+            [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
+            [0, 4, 8], [2, 4, 6]             // Diagonals
+        ];
+
+        // --- DOM Elements ---
+        const DOM = {
+            grid: document.getElementById('grid'),
+            statusText: document.getElementById('status-text'),
+            scoreX: document.getElementById('score-x'),
+            scoreO: document.getElementById('score-o'),
+            gameOverOverlay: document.getElementById('game-over-overlay'),
+            winnerText: document.getElementById('winner-text'),
+            resetBtn: document.getElementById('reset-btn'),
+            modeBtn: document.getElementById('mode-btn'),
+            playAgainBtn: document.getElementById('play-again-btn')
+        };
+
+        // --- Core Logic ---
+
+        // Initialize the board UI
+        const initBoard = () => {
+            DOM.grid.innerHTML = '';
+            for (let i = 0; i < 9; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'bg-[#cdc1b4] rounded-md w-full h-full flex items-center justify-center text-6xl md:text-8xl font-bold cursor-pointer transition-colors';
+                cell.dataset.index = i;
+                cell.addEventListener('click', () => handleCellClick(i));
+                DOM.grid.appendChild(cell);
+            }
+            updateDOM();
+        };
+
+        const handleCellClick = (index) => {
+            if (!gameActive || board[index] !== null) return;
+            if (currentMode === 'AIvAI') return; // Humans can't click in AI vs AI mode
+            if (currentMode === 'PvAI' && currentPlayer === 'O') return; // Wait for AI's turn
+
+            makeMove(index, currentPlayer);
+        };
+
+        const makeMove = (index, player) => {
+            board[index] = player;
+            
+            if (checkWin(board, player)) {
+                endGame(player);
+            } else if (!board.includes(null)) {
+                endGame('Draw');
+            } else {
+                currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+                updateDOM(); // Visually update before the AI pauses to think
+
+                if (gameActive && (currentMode === 'AIvAI' || (currentMode === 'PvAI' && currentPlayer === 'O'))) {
+                    DOM.statusText.innerText = 'AI is thinking...';
+                    aiTimeoutId = setTimeout(makeAIMove, 400); // Trigger AI move
+                }
+            }
+        };
+
+        const checkWin = (currentBoard, player) => {
+            return WIN_CONDITIONS.some(condition => {
+                return condition.every(index => currentBoard[index] === player);
+            });
+        };
+
+        const endGame = (winner) => {
+            gameActive = false;
+            if (winner === 'X') {
+                scores.X++;
+                DOM.winnerText.innerText = 'X Wins!';
+                DOM.winnerText.style.color = '#f67c5f';
+            } else if (winner === 'O') {
+                scores.O++;
+                DOM.winnerText.innerText = 'O Wins!';
+                DOM.winnerText.style.color = '#edc22e';
+            } else {
+                DOM.winnerText.innerText = 'Draw!';
+                DOM.winnerText.style.color = '#776e65';
+            }
+            DOM.gameOverOverlay.classList.remove('hidden');
+            updateDOM(); // Make sure the final move renders
+
+            // In infinite mode, auto-restart after a brief delay
+            if (currentMode === 'AIvAI') {
+                restartTimeoutId = setTimeout(() => {
+                    resetGame();
+                }, 1200);
+            }
+        };
+
+        const resetGame = () => {
+            if (aiTimeoutId) clearTimeout(aiTimeoutId);
+            if (restartTimeoutId) clearTimeout(restartTimeoutId);
+
+            board = Array(9).fill(null);
+            currentPlayer = 'X';
+            gameActive = true;
+            DOM.gameOverOverlay.classList.add('hidden');
+            updateDOM();
+
+            // Kick off infinite mode loop
+            if (currentMode === 'AIvAI') {
+                DOM.statusText.innerText = 'AI is thinking...';
+                aiTimeoutId = setTimeout(makeAIMove, 400);
+            }
+        };
+
+        const toggleMode = () => {
+            if (currentMode === 'PvAI') {
+                currentMode = '2P';
+                DOM.modeBtn.innerText = '👥 2 Player';
+                DOM.modeBtn.className = 'bg-[#f67c5f] hover:bg-[#f65e3b] text-white font-bold py-2 px-4 rounded-md transition-colors shadow-sm text-sm';
+            } else if (currentMode === '2P') {
+                currentMode = 'AIvAI';
+                DOM.modeBtn.innerText = '♾️ AI vs AI';
+                DOM.modeBtn.className = 'bg-[#8f7a66] hover:bg-[#9f8b77] text-white font-bold py-2 px-4 rounded-md transition-colors shadow-sm text-sm';
+            } else {
+                currentMode = 'PvAI';
+                DOM.modeBtn.innerText = '🤖 Vs AI';
+                DOM.modeBtn.className = 'bg-[#edc22e] hover:bg-[#edc53f] text-white font-bold py-2 px-4 rounded-md transition-colors shadow-sm text-sm';
+            }
+            
+            scores = { X: 0, O: 0 }; // Reset scores on mode change
+            resetGame();
+        };
+
+        // --- Unbeatable AI (Minimax Algorithm) ---
+
+        const makeAIMove = () => {
+            if (!gameActive) return;
+            
+            const aiPlayer = currentPlayer;
+            const availableSpots = board.map((val, idx) => val === null ? idx : null).filter(val => val !== null);
+
+            // First move optimization (Also prevents AI from playing the exact same game every round)
+            if (availableSpots.length === 9) {
+                const openings = [0, 2, 4, 6, 8];
+                const move = openings[Math.floor(Math.random() * openings.length)];
+                makeMove(move, aiPlayer);
+                return;
+            } else if (availableSpots.length === 8 && board[4] === null) {
+                 makeMove(4, aiPlayer);
+                 return;
+            }
+
+            let bestScore = -Infinity;
+            let moves = [];
+
+            for (let i = 0; i < 9; i++) {
+                if (board[i] === null) {
+                    board[i] = aiPlayer;
+                    let score = minimax(board, 0, false, aiPlayer);
+                    board[i] = null;
+                    
+                    if (score > bestScore) {
+                        bestScore = score;
+                        moves = [i]; // Start fresh array of best moves
+                    } else if (score === bestScore) {
+                        moves.push(i); // Add to equal good moves
+                    }
+                }
+            }
+            
+            if (moves.length > 0) {
+                // Randomize between equally perfect moves to keep things varied
+                const randomBestMove = moves[Math.floor(Math.random() * moves.length)];
+                makeMove(randomBestMove, aiPlayer);
+            }
+        };
+
+        const minimax = (currentBoard, depth, isMaximizing, aiPlayer) => {
+            const opponent = aiPlayer === 'X' ? 'O' : 'X';
+            if (checkWin(currentBoard, aiPlayer)) return 10 - depth;
+            if (checkWin(currentBoard, opponent)) return -10 + depth;
+            if (!currentBoard.includes(null)) return 0;
+
+            if (isMaximizing) {
+                let bestScore = -Infinity;
+                for (let i = 0; i < 9; i++) {
+                    if (currentBoard[i] === null) {
+                        currentBoard[i] = aiPlayer;
+                        let score = minimax(currentBoard, depth + 1, false, aiPlayer);
+                        currentBoard[i] = null;
+                        bestScore = Math.max(score, bestScore);
+                    }
+                }
+                return bestScore;
+            } else {
+                let bestScore = Infinity;
+                for (let i = 0; i < 9; i++) {
+                    if (currentBoard[i] === null) {
+                        currentBoard[i] = opponent;
+                        let score = minimax(currentBoard, depth + 1, true, aiPlayer);
+                        currentBoard[i] = null;
+                        bestScore = Math.min(score, bestScore);
+                    }
+                }
+                return bestScore;
+            }
+        };
+
+        // --- Rendering ---
+        const updateDOM = () => {
+            DOM.scoreX.innerText = scores.X;
+            DOM.scoreO.innerText = scores.O;
+
+            if (gameActive) {
+                DOM.statusText.innerText = `${currentPlayer}'s Turn`;
+                DOM.statusText.style.color = currentPlayer === 'X' ? '#f67c5f' : '#edc22e';
+            }
+
+            const cells = DOM.grid.children;
+            for (let i = 0; i < 9; i++) {
+                const cell = cells[i];
+                const value = board[i];
+                
+                // Only update if it changed
+                if (cell.innerText !== (value || '')) {
+                    cell.innerText = value || '';
+                    if (value === 'X') {
+                        cell.style.color = '#f9f6f2';
+                        cell.style.backgroundColor = '#f67c5f'; // 2048 Coral
+                        cell.classList.add('animate-pop');
+                        cell.classList.remove('cell-hover');
+                        cell.style.cursor = 'default';
+                    } else if (value === 'O') {
+                        cell.style.color = '#f9f6f2';
+                        cell.style.backgroundColor = '#edc22e'; // 2048 Yellow/Gold
+                        cell.classList.add('animate-pop');
+                        cell.classList.remove('cell-hover');
+                        cell.style.cursor = 'default';
+                    } else {
+                        cell.style.backgroundColor = '#cdc1b4'; // Empty color
+                        cell.classList.remove('animate-pop');
+                        cell.classList.add('cell-hover');
+                        cell.style.cursor = 'pointer';
+                    }
+                }
+            }
+        };
+
+        // --- Event Listeners ---
+        DOM.resetBtn.addEventListener('click', resetGame);
+        DOM.playAgainBtn.addEventListener('click', resetGame);
+        DOM.modeBtn.addEventListener('click', toggleMode);
+
+        // Start Game
+        initBoard();
+    </script>
+</body>
+</html>
